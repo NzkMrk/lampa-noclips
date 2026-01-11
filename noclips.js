@@ -1,18 +1,21 @@
 (function () {
   'use strict';
 
-  function start() {
-    if (!window.Lampa) return setTimeout(start, 300);
+  function safe() {
+    try {
+      if (!window.Lampa || !Lampa.Clips) return;
 
-    if (Lampa.Clips) {
-      // повністю блокуємо кліпи
+      // блокуємо кліпи
       Lampa.Clips.open = function(){};
       Lampa.Clips.render = function(){};
       Lampa.Clips.show = function(){ return false; };
-    }
 
-    console.log('[NoClips] Clips disabled');
+      console.log('[NoClips] OK');
+      clearInterval(timer);
+    } catch (e) {
+      console.log('[NoClips] error', e);
+    }
   }
 
-  start();
+  const timer = setInterval(safe, 500);
 })();
