@@ -1,37 +1,36 @@
 (function () {
   'use strict';
 
-  let disabled = false;
+  const BAD_WORDS = [
+    'clip',
+    'short',
+    'наріз',
+    'shorts'
+  ];
 
-  function disableClips() {
+  function isBad(el) {
+    const text = (el.innerText || '').toLowerCase();
+    return BAD_WORDS.some(w => text.includes(w));
+  }
+
+  function removeClips() {
     try {
-      if (!window.Lampa) return;
-      if (!Lampa.Clips) return;
-      if (disabled) return;
-
-      // глушимо логіку кліпів
-      ['open', 'render', 'show', 'start'].forEach(fn => {
-        if (typeof Lampa.Clips[fn] === 'function') {
-          Lampa.Clips[fn] = function(){};
+      // кнопки / плитки
+      document.querySelectorAll('button, div, span, a').forEach(el => {
+        if (isBad(el)) {
+          el.remove();
         }
       });
 
-      // якщо Lampa очікує boolean
-      if (typeof Lampa.Clips.show === 'function') {
-        Lampa.Clips.show = function(){ return false; };
-      }
-
-      disabled = true;
-      console.log('[NoClips] Clips disabled (stable)');
-    } catch (e) {
-      console.log('[NoClips] error ignored');
-    }
+      // блоки списків
+      document.querySelectorAll('[class], [data-type]').forEach(el => {
+        if (isBad(el)) {
+          el.remove();
+        }
+      });
+    } catch (e) {}
   }
 
-  // слухаємо життєвий цикл Lampa
-  document.addEventListener('lampa:ready', disableClips);
-  document.addEventListener('lampa:start', disableClips);
-
-  // fallback — якщо події не прийшли
-  setInterval(disableClips, 1000);
+  // постійний контроль (але легкий)
+  setInterval(removeClips, 1000);
 })();
