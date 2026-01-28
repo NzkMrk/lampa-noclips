@@ -1,66 +1,50 @@
-/**
- * Lampa TV plugin: No Shorts / No Clips
- * Мета: прибрати нову функцію "нарізки/shorts" (UI + блокування відкриття відповідних активностей)
- *
- * Вимоги:
- * - один .js файл
- * - чистий JS (ES5/ES6), без require/import/npm
- * - не ламає запуск навіть якщо Lampa / частина API недоступні
- */
 (function () {
   'use strict';
 
-  var PLUGIN_ID = 'no_shorts';
-  var STORAGE_KEY_ENABLED = 'no_shorts_enabled';
-  var STORAGE_KEY_LOADED_AT = 'no_shorts_loaded_at';
+  var PLUGIN_ID = 'hide_clips_choice';
+  var STORAGE_ENABLED = 'hide_clips_choice_enabled';
+  var STORAGE_LOADED_AT = 'hide_clips_choice_loaded_at';
 
-  // Слова/мітки, за якими будемо впізнавати "нарізки/shorts" у UI та в Activity.push
-  var BLOCK_WORDS = [
-    'shorts', 'short',
+  // Ключові слова/мітки (на різних мовах і збірках)
+  var WORDS = [
     'clips', 'clip',
+    'shorts', 'short',
     'нарізки', 'нарезки',
-    'кліпи', 'клипы',
-    'короткі', 'короткие'
+    'кліпи', 'клипы'
   ];
 
-  // Компоненти/ідентифікатори (на різних збірках може називатися по-різному)
-  var BLOCK_COMPONENT_HINTS = [
-    'short', 'shorts',
+  // Натяки по component/url (якщо Lampa запускає окрему активність)
+  var COMPONENT_HINTS = [
     'clip', 'clips',
+    'short', 'shorts',
     'reels'
   ];
 
-  // Простий safe-log (щоб не падати, якщо console відсутній/урізаний)
   function log() {
     try {
       if (typeof console !== 'undefined' && console.log) {
-        console.log.apply(console, ['[NoShorts]'].concat([].slice.call(arguments)));
+        console.log.apply(console, ['[HideClips]'].concat([].slice.call(arguments)));
       }
     } catch (e) {}
   }
 
-  function safeLower(s) {
-    try {
-      return String(s || '').toLowerCase();
-    } catch (e) {
-      return '';
-    }
+  function lower(x) {
+    try { return String(x || '').toLowerCase(); } catch (e) { return ''; }
   }
 
-  function containsAny(haystack, needles) {
-    var hs = safeLower(haystack);
-    for (var i = 0; i < needles.length; i++) {
-      if (hs.indexOf(needles[i]) !== -1) return true;
+  function containsAny(text, list) {
+    var t = lower(text);
+    for (var i = 0; i < list.length; i++) {
+      if (t.indexOf(list[i]) !== -1) return true;
     }
     return false;
   }
 
-  function isEnabled() {
+  function enabled() {
     try {
       if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.get === 'function') {
-        // за замовчуванням УВІМКНЕНО (true)
-        var val = Lampa.Storage.get(STORAGE_KEY_ENABLED, true);
-        return val !== false; // щоб "0"/null не ламали логіку
+        var v = Lampa.Storage.get(STORAGE_ENABLED, true);
+        return v !== false;
       }
     } catch (e) {}
     return true;
@@ -69,58 +53,55 @@
   function markLoaded() {
     try {
       if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.set === 'function') {
-        Lampa.Storage.set(STORAGE_KEY_LOADED_AT, Date.now());
+        Lampa.Storage.set(STORAGE_LOADED_AT, Date.now());
       }
     } catch (e) {}
   }
 
   /**
-   * 1) Блокуємо відкриття shorts/clips на рівні Activity.push
-   *    (найнадійніше, бо навіть якщо кнопка десь залишилась — вона не відкриє "нарізки")
+   * 1) Блокуємо відкриття Clips/Shorts через Activity.push
+   * Це корисно саме для твого кейсу №4: навіть якщо пункт “clips” десь є,
+   * він не відкриється.
    */
   function patchActivityPush() {
     try {
       if (!window.Lampa || !Lampa.Activity) return;
 
-      var act = Lampa.Activity;
+      var A = Lampa.Activity;
+      if (A.__hide_clips_patched) return;
+      A.__hide_clips_patched = true;
 
-      if (act.__no_shorts_patched) return;
-      act.__no_shorts_patched = true;
-
-      var originalPush = act.push;
-
+      var originalPush = A.push;
       if (typeof originalPush !== 'function') return;
 
-      act.push = function (params) {
+      A.push = function (params) {
         try {
-          if (!isEnabled()) return originalPush.apply(this, arguments);
+          if (!enabled()) return originalPush.apply(this, arguments);
 
           var p = params || {};
-          // Перевіряємо component/title/url
-          var comp = safeLower(p.component);
-          var title = safeLower(p.title);
-          var url = safeLower(p.url);
+          var comp = lower(p.component);
+          var title = lower(p.title);
+          var url = lower(p.url);
 
-          var looksLikeShorts =
-            containsAny(comp, BLOCK_COMPONENT_HINTS) ||
-            containsAny(title, BLOCK_WORDS) ||
-            containsAny(url, BLOCK_WORDS);
+          var looksLikeClips =
+            containsAny(comp, COMPONENT_HINTS) ||
+            containsAny(title, WORDS) ||
+            containsAny(url, WORDS);
 
-          if (looksLikeShorts) {
+          if (looksLikeClips) {
             log('Blocked Activity.push:', p);
 
-            // Якщо є нотифікації — покажемо коротке повідомлення (але не залежимо від нього)
+            // М’яке повідомлення, якщо Noty є
             try {
               if (Lampa.Noty && typeof Lampa.Noty.show === 'function') {
-                Lampa.Noty.show('Shorts/нарізки вимкнені плагіном');
+                Lampa.Noty.show('Clips/Shorts вимкнені');
               }
             } catch (e2) {}
 
-            // Не відкриваємо активність
-            return;
+            return; // блокуємо
           }
         } catch (e) {
-          // Якщо щось пішло не так — НЕ ламаємо навігацію, а пропускаємо
+          // якщо зламалась перевірка — не ламаємо навігацію
           log('push check error:', e);
         }
 
@@ -134,72 +115,92 @@
   }
 
   /**
-   * 2) Прибираємо пункти меню / кнопки, які ведуть на "нарізки/shorts"
-   *    Робимо це максимально обережно (тільки якщо знаходимо елементи з відповідним текстом).
+   * 2) Прибираємо пункт "clips" саме з меню/діалогу вибору "Дивитись".
+   *
+   * У Lampa це часто виглядає як невелике меню/лист з елементами (div/li/button/a).
+   * Ми не прив’язуємось до точних класів (бо вони різні у збірках),
+   * а шукаємо "маленькі" клікабельні елементи з текстом clips/shorts/нарізки.
    */
-  function removeShortsFromUIOnce() {
+  function removeClipsChoiceFromDom() {
     try {
-      if (!isEnabled()) return;
+      if (!enabled()) return;
 
-      // Основні місця, де зазвичай живуть пункти меню/каталогу
-      var candidates = document.querySelectorAll(
-        '.menu__item, .menu__list li, .head__action, .tabs__item, button, a, div'
-      );
+      // Кандидати: типові кнопки/пункти списку/меню/діалогу
+      var nodes = document.querySelectorAll('button, a, li, .selector, .selectbox__item, .menu__item, .item, div');
 
-      for (var i = 0; i < candidates.length; i++) {
-        var el = candidates[i];
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
         if (!el || !el.parentNode) continue;
 
-        // Відсікаємо великі контейнери, щоб випадково не видалити "пів сторінки"
-        // (беремо лише відносно невеликі елементи за текстом)
-        var text = safeLower(el.textContent);
+        // Текст
+        var text = lower(el.textContent);
         if (!text) continue;
 
-        if (containsAny(text, BLOCK_WORDS)) {
-          // Додаткова пересторога: якщо текст дуже великий — це, ймовірно, контейнер.
-          if (text.length > 80) continue;
+        // Відсікаємо великі контейнери
+        if (text.length > 60) continue;
 
-          // Можемо видаляти сам елемент, або його найближчий "пункт меню"
-          var toRemove = el;
+        // Має збігатися саме як "пункт": clips/shorts/нарізки
+        if (!containsAny(text, WORDS)) continue;
 
-          // Якщо це текст усередині menu__item — краще прибрати весь пункт
-          var parent = el.closest ? el.closest('.menu__item, li, .tabs__item') : null;
-          if (parent) toRemove = parent;
+        // Додаткова перевірка: елемент має виглядати клікабельним
+        var tag = (el.tagName || '').toUpperCase();
+        var clickable = (tag === 'BUTTON' || tag === 'A' || tag === 'LI');
 
-          try {
-            toRemove.parentNode.removeChild(toRemove);
-            log('UI element removed (shorts/clips):', toRemove);
-          } catch (e2) {}
+        // Якщо це DIV, перевіримо атрибути/роль або курсор
+        if (!clickable) {
+          var role = lower(el.getAttribute && el.getAttribute('role'));
+          if (role === 'button' || role === 'menuitem') clickable = true;
+
+          // або має onclick
+          if (!clickable && typeof el.onclick === 'function') clickable = true;
         }
+
+        if (!clickable) continue;
+
+        // Інколи текст “clips” є всередині кнопки — краще прибрати найближчий “пункт”
+        var toRemove = el;
+        try {
+          if (el.closest) {
+            var parentItem = el.closest('button, a, li, .selectbox__item, .menu__item');
+            if (parentItem) toRemove = parentItem;
+          }
+        } catch (e2) {}
+
+        try {
+          toRemove.parentNode.removeChild(toRemove);
+          log('Removed clips choice item:', text);
+        } catch (e3) {}
       }
     } catch (e) {
-      log('removeShortsFromUIOnce error:', e);
+      log('removeClipsChoiceFromDom error:', e);
     }
   }
 
   /**
-   * 3) Спостерігач за DOM: якщо Lampa домальовує меню/кнопки — прибираємо знову.
+   * 3) DOM-спостерігач: меню вибору "Дивитись" з’являється після кліку,
+   * тому чистимо не один раз, а щоразу коли DOM змінюється.
    */
-  function startUiObserver() {
+  function startObserver() {
     try {
-      if (!isEnabled()) return;
-      if (window.__no_shorts_observer_started) return;
-      window.__no_shorts_observer_started = true;
+      if (!enabled()) return;
 
       // Перший прохід
-      removeShortsFromUIOnce();
+      removeClipsChoiceFromDom();
 
+      // Якщо MutationObserver відсутній — fallback на таймер
       if (typeof MutationObserver === 'undefined') {
-        // На дуже старих вебдвижках просто робимо періодичний "підчист"
-        setInterval(removeShortsFromUIOnce, 2000);
+        setInterval(removeClipsChoiceFromDom, 800);
+        log('Observer fallback: interval');
         return;
       }
 
+      if (window.__hide_clips_observer_started) return;
+      window.__hide_clips_observer_started = true;
+
       var obs = new MutationObserver(function () {
-        // легкий debounce через setTimeout
         try {
           clearTimeout(obs.__t);
-          obs.__t = setTimeout(removeShortsFromUIOnce, 250);
+          obs.__t = setTimeout(removeClipsChoiceFromDom, 120);
         } catch (e) {}
       });
 
@@ -208,33 +209,30 @@
         subtree: true
       });
 
-      log('UI observer started');
+      log('DOM observer started');
     } catch (e) {
-      log('startUiObserver error:', e);
+      log('startObserver error:', e);
     }
   }
 
   /**
-   * 4) (Опційно) реєструємо "порожній" компонент, щоб:
-   *    - виконати вимогу "використовуй Lampa.Component"
-   *    - мати стабільну точку для діагностики (але ми НЕ додаємо його в меню)
+   * (Опційно) маленька діагностика через Component — не додаємо в меню,
+   * просто реєструємо, щоб було видно, що плагін “живий” у деяких збірках.
    */
   function registerDummyComponent() {
     try {
       if (!window.Lampa || !Lampa.Component || typeof Lampa.Component.add !== 'function') return;
+      if (Lampa.Component.__hide_clips_dummy_added) return;
+      Lampa.Component.__hide_clips_dummy_added = true;
 
-      if (Lampa.Component.__no_shorts_component_added) return;
-      Lampa.Component.__no_shorts_component_added = true;
-
-      Lampa.Component.add('no_shorts_dummy', function () {
-        // Мінімальний "компонент-заглушка"
-        var html = document.createElement('div');
-        html.style.padding = '1.5em';
-        html.innerHTML = '<h2>NoShorts</h2><div>Плагін активний. Shorts/нарізки блокуються.</div>';
-
+      Lampa.Component.add('hide_clips_dummy', function () {
+        var box = document.createElement('div');
+        box.style.padding = '1.2em';
+        box.innerHTML = '<div style="font-size:1.2em;margin-bottom:.5em">HideClips</div>' +
+          '<div>Плагін активний: пункт Clips прибирається з вибору “Дивитись”.</div>';
         return {
           create: function () {},
-          render: function () { return html; },
+          render: function () { return box; },
           destroy: function () {}
         };
       });
@@ -245,71 +243,57 @@
     }
   }
 
-  /**
-   * Головний запуск (безпечний)
-   */
   function boot() {
     try {
       if (!window.Lampa) {
-        // Lampa ще не піднялась або плагін відкрили як звичайний скрипт у браузері
-        log('Lampa not found, plugin will stay idle.');
+        log('Lampa not found, idle.');
         return;
       }
 
       markLoaded();
       registerDummyComponent();
       patchActivityPush();
-      startUiObserver();
+      startObserver();
 
-      log('Plugin boot OK. enabled=', isEnabled());
+      log('Boot OK. enabled=', enabled());
     } catch (e) {
-      // НІКОЛИ не валимо застосунок через плагін
       log('boot error:', e);
     }
   }
 
   /**
-   * Правильна ініціалізація:
-   * - якщо вже "appready" — стартуємо одразу
-   * - інакше чекаємо Lampa.Listener.follow('app', {type:'ready'})
+   * Нормальна ініціалізація через Lampa.Plugin.create + очікування ready,
+   * але якщо цього API немає — все одно стартуємо без падіння.
    */
-  function initSafely() {
+  function init() {
     try {
-      // Плагін як "розширення" у Lampa зазвичай стартує так:
-      // Lampa.Plugin.create({ run: fn })
       if (!window.Lampa || !Lampa.Plugin || typeof Lampa.Plugin.create !== 'function') {
-        // Якщо Plugin API недоступне — все одно спробуємо стартанути після load
-        log('Lampa.Plugin.create missing, fallback init');
-        // невелика затримка, щоб дати Lampa шанс ініціалізуватись
+        log('Plugin API missing, fallback boot');
         setTimeout(boot, 0);
         return;
       }
 
       Lampa.Plugin.create({
-        title: 'No Shorts / No Clips',
+        title: 'Hide Clips in Watch',
         id: PLUGIN_ID,
-        description: 'Вимикає нову функцію "нарізки/shorts" (прибирає UI та блокує відкриття).',
+        description: 'Прибирає пункт clips/shorts/нарізки з вибору при натисканні “Дивитись” + блокує відкриття.',
         version: '1.0.0',
-
         run: function () {
           try {
-            // Деякі збірки мають window.appready
             if (window.appready) {
               boot();
               return;
             }
 
-            // Чекаємо готовність застосунку
             if (Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
               Lampa.Listener.follow('app', function (e) {
                 try {
                   if (e && e.type === 'ready') boot();
                 } catch (err) {
-                  log('Listener handler error:', err);
+                  log('Listener error:', err);
                 }
               });
             } else {
-              // якщо Listener недоступний — стартуємо одразу
               boot();
             }
           } catch (e) {
@@ -321,12 +305,10 @@
 
       log('Plugin registered:', PLUGIN_ID);
     } catch (e) {
-      log('initSafely error:', e);
-      // крайній fallback
+      log('init error:', e);
       try { boot(); } catch (e2) {}
     }
   }
 
-  // Старт
-  initSafely();
+  init();
 })();
