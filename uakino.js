@@ -1,69 +1,73 @@
 (function () {
     'use strict';
 
-    function UAOnlineParser(object) {
+    // 1. Компонент, який відображає результати пошуку
+    function UAOnline(object) {
         var network = new Lampa.Reguest();
         var scroll  = new Lampa.Scroll({mask: true, over: true});
         
         this.create = function () {
             var _this = this;
             var query = object.search || (object.movie ? (object.movie.title || object.movie.name) : '');
-            var html = $('<div class="wait" style="padding: 20px; text-align: center;">Пошук на UAkino: ' + query + '...</div>');
+            var html = $('<div style="padding: 20px; text-align: center;"><div class="wait">Запит до UAkino для: ' + query + '...</div></div>');
             
             scroll.append(html);
 
-            // Пошуковий запит до UAkino через проксі
-            // Ми використовуємо cors-anywhere або аналогічний сервіс, щоб обійти блокування
-            var searchUrl = 'https://uakino.best/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
+            // Виконуємо запит до сайту
+            var url = 'https://uakino.best/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
             
-            network.native(searchUrl, function(str) {
+            network.native(url, function(str) {
                 scroll.clear();
-                var dom = $(str.replace(/<img/g, '<img-disabled')); // вимикаємо картинки для швидкості парсингу
-                var results = [];
+                var dom = $(str.replace(/<img/g, '<img-disabled')); 
+                var items = dom.find('.movie-item');
 
-                dom.find('.movie-item').each(function() {
-                    var el = $(this);
-                    var title = el.find('.movie-title').text();
-                    var link = el.find('a').attr('href');
-                    if(title && link) {
-                        results.push({title: title, url: link});
-                    }
-                });
+                if (items.length > 0) {
+                    items.each(function() {
+                        var el = $(this);
+                        var title = el.find('.movie-title').text();
+                        var link = el.find('a').attr('href');
 
-                if(results.length > 0) {
-                    results.forEach(function(res) {
-                        var item = $('<div class="selector" style="padding: 15px; border-bottom: 1px solid #333;">' + res.title + '</div>');
-                        item.on('hover:enter', function() {
-                            Lampa.Noty.show('Ви обрали: ' + res.title);
-                            // Тут буде перехід до плеєра
+                        var card = $('<div class="selector" style="padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between;"><div>' + title + '</div><div style="color: #24b353;">UAkino</div></div>');
+                        
+                        card.on('hover:enter', function() {
+                            Lampa.Noty.show('Ви обрали: ' + title);
+                            // Тут пізніше додамо виклик плеєра
                         });
-                        scroll.append(item);
+                        
+                        scroll.append(card);
                     });
                 } else {
-                    scroll.append('<div style="padding:20px;">Нічого не знайдено на UAkino</div>');
+                    scroll.append('<div style="padding: 20px; text-align: center;">На жаль, на UAkino нічого не знайдено.</div>');
                 }
+                
+                Lampa.Controller.enable('content'); // Вмикаємо керування пультом
             }, function() {
                 scroll.clear();
-                scroll.append('<div style="padding:20px;">Помилка доступу до сайту. Можливо, потрібен проксі.</div>');
+                scroll.append('<div style="padding: 20px; text-align: center;">Помилка мережі або CORS. Спробуйте через лампу на Android.</div>');
             }, false, {dataType: 'text'});
 
             return scroll.render();
         };
     }
 
+    // 2. Інтеграція в кнопку "Дивитися"
     function startPlugin() {
-        Lampa.Component.add('ua_online', UAOnlineParser);
+        // Реєструємо компонент у системі
+        Lampa.Component.add('ua_online', UAOnline);
 
+        // Перехоплюємо натискання на кнопку "Онлайн/Дивитися"
         Lampa.Listener.follow('online', function (e) {
             if (e.type == 'start') {
+                // Додаємо наш плагін у список джерел
                 e.sources.push({
-                    title: 'UA Online',
+                    title: 'UA Online (UAkino)',
                     name: 'ua_online',
                     onSelect: function() {
                         Lampa.Activity.push({
                             title: 'UA Online',
                             component: 'ua_online',
-                            movie: e.movie
+                            movie: e.movie,
+                            page: 1
                         });
                     }
                 });
@@ -71,6 +75,9 @@
         });
     }
 
+    // Запуск плагіна
     if (window.appready) startPlugin();
-    else Lampa.Listener.follow('app', function (e) { if (e.type == 'ready') startPlugin(); });
+    else Lampa.Listener.follow('app', function (e) {
+        if (e.type == 'ready') startPlugin();
+    });
 })();
