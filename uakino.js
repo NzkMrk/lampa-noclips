@@ -4,101 +4,114 @@
     function UAOnline(object) {
         var network = new Lampa.Reguest();
         var scroll  = new Lampa.Scroll({mask: true, over: true});
+        var items   = [];
+        var html    = $('<div></div>');
         
         this.create = function () {
             var _this = this;
-            // Беремо назву українською або оригінальну
-            var query = object.movie.name || object.movie.title;
-            var html = $('<div style="padding: 2em; text-align: center;"><div class="wait">Шукаємо на UAkino: ' + query + '...</div></div>');
+            var query = object.search || (object.movie ? (object.movie.title || object.movie.name) : '');
             
-            scroll.append(html);
-
-            // Пошук (використовуємо native для обходу обмежень на ТБ)
-            var searchUrl = 'https://uakino.best/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
+            // Відображаємо лоадер, як у твого файлу
+            scroll.append(Lampa.Template.get('lampac_content_loading', {}));
             
-            network.native(searchUrl, function(str) {
-                scroll.clear();
-                // Захист від збою парсингу
-                var cleanHtml = str.replace(/<img/g, '<img-disabled');
-                var dom = $(cleanHtml);
-                var items = dom.find('.movie-item, .shortstory');
-
-                if (items.length > 0) {
-                    items.each(function() {
-                        var el = $(this);
-                        var title = el.find('.movie-title, h2, a.sh-link').text().trim();
-                        var link = el.find('a').attr('href');
-
-                        if(title && link) {
-                            var card = $('<div class="selector" style="padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); border-radius: 10px; margin-bottom: 5px;">' +
-                                '<div style="font-size: 1.1em; margin-bottom: 4px;">' + title + '</div>' +
-                                '<div style="color: #24b353; font-size: 0.8em;">uakino.best</div>' +
-                            '</div>');
-                            
-                            card.on('hover:enter', function() {
-                                Lampa.Noty.show('Завантаження сторінки...');
-                                _this.extractVideo(link);
-                            });
-                            
-                            scroll.append(card);
-                        }
-                    });
-                } else {
-                    scroll.append('<div style="padding: 2em; text-align: center;">На UAkino нічого не знайдено 😕</div>');
-                }
-                Lampa.Controller.enable('content');
+            // Запит до UAkino
+            var url = 'https://uakino.best/index.php?do=search&subaction=search&story=' + encodeURIComponent(query);
+            
+            network.native(url, function(str) {
+                _this.build(str);
             }, function() {
-                scroll.clear();
-                scroll.append('<div style="padding: 2em; text-align: center;">Помилка запиту. Перевірте мережу або проксі.</div>');
+                _this.empty('Помилка доступу до UAkino');
             }, false, {dataType: 'text'});
 
             return scroll.render();
         };
 
-        this.extractVideo = function(url) {
-            network.native(url, function(html) {
-                // Шукаємо посилання на популярні українські плеєри
-                var videoFrame = $(html).find('iframe[src*="ashdi"], iframe[src*="vidmoly"], iframe[src*="uaserials"]').attr('src');
-                
-                if (videoFrame) {
-                    // Якщо посилання починається з //, додаємо https:
-                    if (videoFrame.startsWith('//')) videoFrame = 'https:' + videoFrame;
+        this.build = function(str) {
+            var _this = this;
+            scroll.clear();
+            
+            var dom = $(str.replace(/<img/g, '<img-disabled'));
+            var results = dom.find('.movie-item, .shortstory');
 
+            if (results.length > 0) {
+                results.each(function() {
+                    var el = $(this);
+                    var title = el.find('.movie-title, h2').text().trim();
+                    var link = el.find('a').attr('href');
+                    var img = el.find('img-disabled').attr('src');
+
+                    // Створюємо картку в стилі Lampa
+                    var item = Lampa.Template.get('button_card', {
+                        title: title,
+                        description: 'UAkino'
+                    });
+
+                    if (img) item.find('img').attr('src', img.startsWith('http') ? img : 'https://uakino.best' + img);
+
+                    item.on('hover:enter', function() {
+                        _this.extractVideo(link);
+                    });
+
+                    scroll.append(item);
+                });
+            } else {
+                _this.empty();
+            }
+            
+            Lampa.Controller.enable('content');
+        };
+
+        this.extractVideo = function(url) {
+            Lampa.Noty.show('Шукаємо відео...');
+            network.native(url, function(html) {
+                var iframe = $(html).find('iframe[src*="ashdi"], iframe[src*="vidmoly"], iframe[src*="uaserials"]').attr('src');
+                if (iframe) {
+                    if (iframe.startsWith('//')) iframe = 'https:' + iframe;
                     Lampa.Player.play({
-                        url: videoFrame,
-                        title: object.movie.name || object.movie.title
+                        url: iframe,
+                        title: object.movie.title || object.movie.name
                     });
                 } else {
-                    Lampa.Noty.show('Плеєр не знайдено. Можливо, фільм видалено.');
+                    Lampa.Noty.show('Плеєр не знайдено');
                 }
             }, function() {
-                Lampa.Noty.show('Не вдалося відкрити сторінку фільму');
+                Lampa.Noty.show('Помилка сторінки');
             }, false, {dataType: 'text'});
+        };
+
+        this.empty = function(text) {
+            scroll.clear();
+            scroll.append('<div class="empty">' + (text || 'Нічого не знайдено') + '</div>');
         };
     }
 
-    function startPlugin() {
-        // Реєструємо компонент
-        Lampa.Component.add('ua_online_comp', UAOnline);
+    // Реєстрація як у твого зразка
+    function start() {
+        Lampa.Component.add('ua_online', UAOnline);
 
-        // Додаємо джерело в глобальний список Online
         Lampa.Listener.follow('online', function (e) {
             if (e.type == 'start') {
-                e.sources.push({
+                var item = {
                     title: 'UA Online',
-                    name: 'ua_online_comp',
+                    name: 'ua_online',
                     onSelect: function() {
                         Lampa.Activity.push({
                             title: 'UA Online',
-                            component: 'ua_online_comp',
-                            movie: e.movie
+                            component: 'ua_online',
+                            movie: e.movie,
+                            page: 1
                         });
                     }
-                });
+                };
+                // Додаємо в список джерел
+                e.sources.push(item);
             }
         });
     }
 
-    if (window.appready) startPlugin();
-    else Lampa.Listener.follow('app', function (e) { if (e.type == 'ready') startPlugin(); });
+    if (window.appready) start();
+    else Lampa.Listener.follow('app', function (e) {
+        if (e.type == 'ready') start();
+    });
+
 })();
